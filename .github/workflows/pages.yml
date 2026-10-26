@@ -142,28 +142,29 @@ jobs:
           # OpenFL no longer exposes ImageCanvasUtil / __srcContext to this renderer.
           renderer = Path.home() / "haxelib/flxanimate/git/flxanimate/display/FlxAnimateFilterRenderer.hx"
           s = renderer.read_text()
-          start = s.find("\tpublic function applyBlend(blend:BlendMode, bitmap:BitmapData)")
-          end = s.find("\n\tpublic function graphicstoBitmapData", start)
-          if start < 0 or end < 0:
-              raise SystemExit("Expected FlxAnimateFilterRenderer.applyBlend method not found")
-          method = """\tpublic function applyBlend(blend:BlendMode, bitmap:BitmapData)
+          import re
+          pattern = r"public function applyBlend\\(blend:BlendMode, bitmap:BitmapData\\).*?(?=public function graphicstoBitmapData)"
+          method = """public function applyBlend(blend:BlendMode, bitmap:BitmapData)
           {
-          \t\t#if (js && html5)
-          \t\tvar bmp = new BitmapData(bitmap.width, bitmap.height, true, 0);
-          \t\t// Canvas-specific OpenFL internals are not public in current OpenFL.
-          \t\tbmp.draw(bitmap);
-          \t\treturn bmp;
-          \t\t#else
-          \t\tvar bmp = new BitmapData(bitmap.width, bitmap.height, 0);
-          \t\tvar renderer = new CairoRenderer(new Cairo(bmp.getSurface()));
-          \t\tsetRenderer(renderer, bmp.rect);
-          \t\trenderer.__setBlendMode(blend);
-          \t\tbmp.__drawCairo(bitmap, renderer);
-          \t\treturn bmp;
-          \t\t#end
-          \t}
+          \t#if (js && html5)
+          \tvar bmp = new BitmapData(bitmap.width, bitmap.height, true, 0);
+          \t// Browser fallback: avoid private canvas internals unavailable in OpenFL.
+          \tbmp.draw(bitmap);
+          \treturn bmp;
+          \t#else
+          \tvar bmp = new BitmapData(bitmap.width, bitmap.height, 0);
+          \tvar renderer = new CairoRenderer(new Cairo(bmp.getSurface()));
+          \tsetRenderer(renderer, bmp.rect);
+          \trenderer.__setBlendMode(blend);
+          \tbmp.__drawCairo(bitmap, renderer);
+          \treturn bmp;
+          \t#end
+          }
+          
           """
-          s = s[:start] + method + s[end:]
+          s, count = re.subn(pattern, method, s, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit("Expected FlxAnimateFilterRenderer.applyBlend method not found")
           renderer.write_text(s)
 
           project = Path("Project.xml")
