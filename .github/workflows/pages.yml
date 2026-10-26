@@ -187,6 +187,52 @@ jobs:
               s = s.replace(old, new, 1)
           p.write_text(s)
 
+          # Guard empty browser-loaded week/song lists instead of crashing into a black screen.
+          story = Path("source/states/StoryMenuState.hx")
+          s = story.read_text()
+          old = "\t\tWeekData.reloadWeekFiles(true);"
+          new = """\t\tWeekData.reloadWeekFiles(true);
+          \t\tif (WeekData.weeksList.length == 0) {
+          \t\t\tvar errorText:FlxText = new FlxText(24, 24, FlxG.width - 48,
+          \t\t\t\t"STORY MODE ERROR: No weeks were loaded. Check weekList.txt and week JSON assets.", 24);
+          \t\t\terrorText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, CENTER);
+          \t\t\tadd(errorText);
+          \t\t\tsuper.create();
+          \t\t\treturn;
+          \t\t}"""
+          if old not in s:
+              raise SystemExit("Expected StoryMenuState week-loading point not found")
+          s = s.replace(old, new, 1)
+          old = "\t\tWeekData.setDirectoryFromWeek(loadedWeeks[0]);"
+          new = """\t\tif (loadedWeeks.length == 0) {
+          \t\t\tvar errorText:FlxText = new FlxText(24, 24, FlxG.width - 48,
+          \t\t\t\t"STORY MODE ERROR: No playable weeks are available.", 24);
+          \t\t\terrorText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, CENTER);
+          \t\t\tadd(errorText);
+          \t\t\tsuper.create();
+          \t\t\treturn;
+          \t\t}
+          \t\tWeekData.setDirectoryFromWeek(loadedWeeks[0]);"""
+          if old not in s:
+              raise SystemExit("Expected StoryMenuState loadedWeeks[0] point not found")
+          story.write_text(s.replace(old, new, 1))
+
+          freeplay = Path("source/states/FreeplayState.hx")
+          s = freeplay.read_text()
+          old = "\t\tMods.loadTopMod();"
+          new = """\t\tif (songs.length == 0) {
+          \t\t\tvar errorText:FlxText = new FlxText(24, 24, FlxG.width - 48,
+          \t\t\t\t"FREEPLAY ERROR: No songs were loaded. Check weekList.txt and week JSON assets.", 24);
+          \t\t\terrorText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, CENTER);
+          \t\t\tadd(errorText);
+          \t\t\tsuper.create();
+          \t\t\treturn;
+          \t\t}
+          \t\tMods.loadTopMod();"""
+          if old not in s:
+              raise SystemExit("Expected FreeplayState song-loading point not found")
+          freeplay.write_text(s.replace(old, new, 1))
+
           project = Path("Project.xml")
           s = project.read_text()
           s = s.replace('<define name="DISCORD_ALLOWED" />', '<define name="DISCORD_ALLOWED" if="desktop" />')
