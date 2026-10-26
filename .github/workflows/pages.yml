@@ -169,6 +169,24 @@ jobs:
           s = s[:start] + method + s[end:]
           renderer.write_text(s)
 
+          # WeekData normally prefers native filesystem access when MODS_ALLOWED is defined.
+          # In HTML5 there is no native asset directory, so use packaged OpenFL assets instead.
+          p = Path("source/backend/WeekData.hx")
+          s = p.read_text()
+          replacements = [
+              ("#if MODS_ALLOWED\n\t\tvar directories:Array<String> = [Paths.mods(), Paths.getSharedPath()];",
+               "#if (MODS_ALLOWED && !html5)\n\t\tvar directories:Array<String> = [Paths.mods(), Paths.getSharedPath()];"),
+              ("#if MODS_ALLOWED\n\t\tfor (i in 0...directories.length) {",
+               "#if (MODS_ALLOWED && !html5)\n\t\tfor (i in 0...directories.length) {"),
+              ("#if MODS_ALLOWED\n\t\tif(FileSystem.exists(path)) {",
+               "#if (MODS_ALLOWED && !html5)\n\t\tif(FileSystem.exists(path)) {"),
+          ]
+          for old, new in replacements:
+              if old not in s:
+                  raise SystemExit(f"Expected WeekData.hx pattern not found: {old!r}")
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+
           project = Path("Project.xml")
           s = project.read_text()
           s = s.replace('<define name="DISCORD_ALLOWED" />', '<define name="DISCORD_ALLOWED" if="desktop" />')
