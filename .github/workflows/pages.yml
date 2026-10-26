@@ -96,6 +96,76 @@ jobs:
           s = s.replace(old, new)
           animate.write_text(s)
 
+          # Avoid resolving flixel.addons.ui.Option instead of Psych Engine's options.Option.
+          for name in ["GraphicsSettingsSubState.hx", "VisualsUISubState.hx", "GameplaySettingsSubState.hx"]:
+              p = Path("source/options") / name
+              s = p.read_text()
+              s = s.replace("var option:Option", "var option:options.Option")
+              s = s.replace("new Option(", "new options.Option(")
+              p.write_text(s)
+
+          # The character editor's filesystem directory scan is not available in HTML5.
+          p = Path("source/states/editors/CharacterEditorState.hx")
+          s = p.read_text()
+          old = """\t\tvar foldersToCheck:Array<String> = Mods.directoriesWithFile(Paths.getSharedPath(), 'characters/');
+          \t\tfor (folder in foldersToCheck)
+          \t\t\tfor (file in FileSystem.readDirectory(folder))
+          \t\t\t\tif(file.toLowerCase().endsWith('.json'))
+          \t\t\t\t{
+          \t\t\t\t\tvar charToCheck:String = file.substr(0, file.length - 5);
+          \t\t\t\t\tif(!characterList.contains(charToCheck))
+          \t\t\t\t\t\tcharacterList.push(charToCheck);
+          \t\t\t\t}"""
+          new = """\t\t#if sys
+          \t\tvar foldersToCheck:Array<String> = Mods.directoriesWithFile(Paths.getSharedPath(), 'characters/');
+          \t\tfor (folder in foldersToCheck)
+          \t\t\tfor (file in FileSystem.readDirectory(folder))
+          \t\t\t\tif(file.toLowerCase().endsWith('.json'))
+          \t\t\t\t{
+          \t\t\t\t\tvar charToCheck:String = file.substr(0, file.length - 5);
+          \t\t\t\t\tif(!characterList.contains(charToCheck))
+          \t\t\t\t\t\tcharacterList.push(charToCheck);
+          \t\t\t\t}
+          \t\t#end"""
+          if old not in s:
+              raise SystemExit("Expected CharacterEditorState directory scan not found")
+          p.write_text(s.replace(old, new, 1))
+
+          # FlxG.error was removed from the selected Flixel version.
+          p = Path("source/backend/CoolUtil.hx")
+          s = p.read_text()
+          if 'FlxG.error("Platform is not supported for CoolUtil.openFolder");' not in s:
+              raise SystemExit("Expected CoolUtil FlxG.error call not found")
+          p.write_text(s.replace('FlxG.error("Platform is not supported for CoolUtil.openFolder");',
+                                 'trace("Platform is not supported for CoolUtil.openFolder");', 1))
+
+          # OpenFL no longer exposes ImageCanvasUtil / __srcContext to this renderer.
+          renderer = Path.home() / "haxelib/flxanimate/git/flxanimate/display/FlxAnimateFilterRenderer.hx"
+          s = renderer.read_text()
+          start = s.find("\tpublic function applyBlend(blend:BlendMode, bitmap:BitmapData)")
+          end = s.find("\n\tpublic function graphicstoBitmapData", start)
+          if start < 0 or end < 0:
+              raise SystemExit("Expected FlxAnimateFilterRenderer.applyBlend method not found")
+          method = """\tpublic function applyBlend(blend:BlendMode, bitmap:BitmapData)
+          {
+          \t\t#if (js && html5)
+          \t\tvar bmp = new BitmapData(bitmap.width, bitmap.height, true, 0);
+          \t\t// Canvas-specific OpenFL internals are not public in current OpenFL.
+          \t\tbmp.draw(bitmap);
+          \t\treturn bmp;
+          \t\t#else
+          \t\tvar bmp = new BitmapData(bitmap.width, bitmap.height, 0);
+          \t\tvar renderer = new CairoRenderer(new Cairo(bmp.getSurface()));
+          \t\tsetRenderer(renderer, bmp.rect);
+          \t\trenderer.__setBlendMode(blend);
+          \t\tbmp.__drawCairo(bitmap, renderer);
+          \t\treturn bmp;
+          \t\t#end
+          \t}
+          """
+          s = s[:start] + method + s[end:]
+          renderer.write_text(s)
+
           project = Path("Project.xml")
           s = project.read_text()
           s = s.replace('<define name="DISCORD_ALLOWED" />', '<define name="DISCORD_ALLOWED" if="desktop" />')
