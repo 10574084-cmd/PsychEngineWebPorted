@@ -25,8 +25,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download Psych Engine 0.7.3 source
-        run: |
-          git clone --depth 1 --branch 0.7.3 https://github.com/ShadowMario/FNF-PsychEngine.git engine
+        run: git clone --depth 1 --branch 0.7.3 https://github.com/ShadowMario/FNF-PsychEngine.git engine
 
       - name: Set up Haxe
         uses: krdlab/setup-haxe@v1
@@ -49,10 +48,10 @@ jobs:
           haxelib install flixel --quiet
           haxelib install flixel-ui --quiet
           haxelib install flixel-addons --quiet
+          haxelib install flixel-tools --quiet
           haxelib install tjson --quiet
-          haxelib install flxanimate --quiet
           haxelib install hxcpp --quiet
-          haxelib install hscript --quiet || true
+          haxelib git flxanimate https://github.com/ShadowMario/flxanimate dev
 
       - name: Apply browser-target configuration
         working-directory: engine
@@ -62,8 +61,6 @@ jobs:
           p = Path("Project.xml")
           s = p.read_text()
           s = s.replace('<define name="DISCORD_ALLOWED" />', '<define name="DISCORD_ALLOWED" if="desktop" />')
-          s = s.replace('<define name="LUA_ALLOWED" if="desktop" />', '<define name="LUA_ALLOWED" if="desktop" />')
-          s = s.replace('<define name="HSCRIPT_ALLOWED" if="desktop" />', '<define name="HSCRIPT_ALLOWED" if="desktop" />')
           p.write_text(s)
           PY
 
@@ -74,11 +71,11 @@ jobs:
       - name: Prepare Pages artifact
         run: |
           mkdir -p dist
-          find engine/export -type f -name index.html -print -quit | grep -q . || {
+          HTML=$(find engine/export -type f -name index.html -print -quit)
+          if [ -z "$HTML" ]; then
             echo "Build finished without producing index.html; inspect the Build HTML5 log." >&2
             exit 1
-          }
-          HTML=$(find engine/export -type f -name index.html -print -quit)
+          fi
           ROOT=$(dirname "$HTML")
           cp -a "$ROOT"/. dist/
           touch dist/.nojekyll
