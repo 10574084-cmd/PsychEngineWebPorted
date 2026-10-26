@@ -42,15 +42,17 @@ jobs:
       - name: Install Haxe libraries
         working-directory: engine
         run: |
-          haxelib install lime --quiet
-          haxelib run lime setup
-          haxelib install openfl --quiet
-          haxelib install flixel --quiet
-          haxelib install flixel-ui --quiet
-          haxelib install flixel-addons --quiet
-          haxelib install flixel-tools --quiet
-          haxelib install tjson --quiet
-          haxelib install hxcpp --quiet
+          # Pin the versions used by the Psych Engine 0.7.x generation.
+          # Newer Flixel releases are not source-compatible with this engine.
+          haxelib install lime 8.1.2 --quiet
+          haxelib run lime setup -y
+          haxelib install openfl 9.3.3 --quiet
+          haxelib install flixel 5.6.1 --quiet
+          haxelib install flixel-ui 2.5.0 --quiet
+          haxelib install flixel-addons 3.2.2 --quiet
+          haxelib install flixel-tools 1.5.1 --quiet
+          haxelib install tjson 1.4.0 --quiet
+          haxelib install hxcpp 4.3.2 --quiet
           haxelib git flxanimate https://github.com/ShadowMario/flxanimate dev
 
       - name: Apply browser-target configuration
