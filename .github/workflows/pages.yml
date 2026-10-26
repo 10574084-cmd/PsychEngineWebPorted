@@ -27,7 +27,7 @@ jobs:
         run: git clone --depth 1 --branch 0.7.3 https://github.com/ShadowMario/FNF-PsychEngine.git engine
 
       - name: Set up Haxe
-        uses: haxefoundation/setup-haxe@v1
+        uses: krdlab/setup-haxe@v2
         with:
           haxe-version: "4.2.5"
 
