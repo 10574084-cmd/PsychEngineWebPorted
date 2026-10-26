@@ -177,7 +177,7 @@ jobs:
         working-directory: engine
         run: haxelib run lime build html5 -final
 
-      - name: Package browser build
+      - name: Package as a single self-contained HTML
         run: |
           set -euo pipefail
           mkdir -p release
@@ -187,15 +187,122 @@ jobs:
             exit 1
           fi
           ROOT=$(dirname "$HTML")
-          cp "$HTML" release/PsychEngineWebPort.html
-          cd "$ROOT"
-          zip -qr "$GITHUB_WORKSPACE/release/PsychEngineWebPort-WebBuild.zip" .
+          python3 - "$ROOT" "$GITHUB_WORKSPACE/release/PsychEngineWebPort.html" <<'PY'
+          import base64, json, mimetypes, re, sys
+          from pathlib import Path
+          from urllib.parse import unquote, urlsplit
+
+          root = Path(sys.argv[1]).resolve()
+          output = Path(sys.argv[2])
+          html_path = root / "index.html"
+          html = html_path.read_text(encoding="utf-8")
+
+          def mime(path):
+              guessed = mimetypes.guess_type(str(path))[0]
+              if guessed:
+                  return guessed
+              if path.suffix.lower() == ".wasm":
+                  return "application/wasm"
+              if path.suffix.lower() == ".json":
+                  return "application/json"
+              return "application/octet-stream"
+
+          files = {}
+          for path in sorted(root.rglob("*")):
+              if not path.is_file() or path == html_path:
+                  continue
+              rel = path.relative_to(root).as_posix()
+              data = base64.b64encode(path.read_bytes()).decode("ascii")
+              files[rel] = f"data:{mime(path)};base64,{data}"
+
+          if not files:
+              raise SystemExit("No runtime files found beside index.html; refusing to create an incomplete single-file build.")
+
+          def inline_script(match):
+              attrs = match.group(1)
+              src_match = re.search(r'\bsrc\s*=\s*["\']([^"\']+)["\']', attrs, re.I)
+              if not src_match:
+                  return match.group(0)
+              src = unquote(urlsplit(src_match.group(1)).path).lstrip("./")
+              candidate = (root / src).resolve()
+              if root not in candidate.parents or not candidate.is_file() or candidate.suffix.lower() != ".js":
+                  return match.group(0)
+              code = candidate.read_text(encoding="utf-8")
+              code = re.sub(r"</script", r"<\/script", code, flags=re.I)
+              attrs = re.sub(r'\s+src\s*=\s*["\'][^"\']+["\']', "", attrs, flags=re.I)
+              return "<script" + attrs + ">\n" + code + "\n</script>"
+
+          html = re.sub(r"<script\b([^>]*)>\s*</script>", inline_script, html, flags=re.I)
+
+          def inline_style(match):
+              attrs = match.group(1)
+              href_match = re.search(r'\bhref\s*=\s*["\']([^"\']+\.css(?:\?[^"\']*)?)["\']', attrs, re.I)
+              if not href_match:
+                  return match.group(0)
+              href = unquote(urlsplit(href_match.group(1)).path).lstrip("./")
+              candidate = (root / href).resolve()
+              if root not in candidate.parents or not candidate.is_file():
+                  return match.group(0)
+              css = candidate.read_text(encoding="utf-8")
+              css = re.sub(r"</style", r"<\/style", css, flags=re.I)
+              return "<style>\n" + css + "\n</style>"
+
+          html = re.sub(r"<link\b([^>]*?)>", inline_style, html, flags=re.I)
+
+          payload = json.dumps(files, separators=(",", ":"))
+          loader = r"""
+          <script>
+          (() => {
+            const files = __EMBEDDED_FILES__;
+            const originalFetch = window.fetch.bind(window);
+            const originalXhrOpen = XMLHttpRequest.prototype.open;
+            const resolve = value => {
+              try {
+                const u = new URL(typeof value === "string" ? value : value.url, document.baseURI);
+                if (u.protocol === "data:" || u.protocol === "blob:" || u.protocol === "javascript:") return null;
+                let p = decodeURIComponent(u.pathname).replace(/^\/+/, "");
+                if (files[p]) return files[p];
+                p = p.replace(/^\.\//, "");
+                if (files[p]) return files[p];
+                const suffix = Object.keys(files).find(k => p.endsWith("/" + k));
+                return suffix ? files[suffix] : null;
+              } catch (_) { return null; }
+            };
+            window.fetch = (input, init) => {
+              const data = resolve(input);
+              return data ? originalFetch(data, init) : originalFetch(input, init);
+            };
+            XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+              return originalXhrOpen.call(this, method, resolve(url) || url, ...rest);
+            };
+            const patchSrc = (proto, property) => {
+              if (!proto) return;
+              const d = Object.getOwnPropertyDescriptor(proto, property);
+              if (!d || !d.set || !d.get || !d.configurable) return;
+              Object.defineProperty(proto, property, {
+                configurable: true, enumerable: d.enumerable, get: d.get,
+                set(value) { d.set.call(this, resolve(value) || value); }
+              });
+            };
+            patchSrc(HTMLImageElement.prototype, "src");
+            patchSrc(HTMLMediaElement.prototype, "src");
+            patchSrc(HTMLScriptElement.prototype, "src");
+            patchSrc(HTMLSourceElement.prototype, "src");
+            patchSrc(HTMLLinkElement.prototype, "href");
+            window.__PSYCH_ENGINE_SINGLE_HTML__ = true;
+          })();
+          </script>
+          """.replace("__EMBEDDED_FILES__", payload)
+          html = re.sub(r"</head\s*>", lambda m: loader + m.group(0), html, count=1, flags=re.I)
+          if "__PSYCH_ENGINE_SINGLE_HTML__" not in html:
+              html = loader + html
+          output.write_text(html, encoding="utf-8")
+          print(f"Created single HTML: {output.stat().st_size:,} bytes; embedded {len(files)} runtime files.")
+          PY
           cat > "$GITHUB_WORKSPACE/release/README-release.txt" <<'EOF'
-          Experimental Psych Engine 0.7.3 HTML5 build.
-          The ZIP contains the complete browser output, including runtime assets.
-          Use the ZIP for the actual game; the standalone HTML file may require
-          the accompanying assets and therefore may not run by itself.
-          Mod support, Lua/HScript, and browser gameplay are not verified yet.
+          Experimental Psych Engine 0.7.3 single-file HTML5 build.
+          Runtime files are embedded into PsychEngineWebPort.html.
+          This experimental build has not yet had browser gameplay or mod support verified.
           EOF
 
       - name: Upload build files as workflow artifact
@@ -216,5 +323,4 @@ jobs:
           generate_release_notes: true
           files: |
             release/PsychEngineWebPort.html
-            release/PsychEngineWebPort-WebBuild.zip
             release/README-release.txt
