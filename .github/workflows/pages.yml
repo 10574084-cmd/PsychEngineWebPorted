@@ -1,0 +1,107 @@
+name: Build Psych Engine Web Port
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/pages.yml"
+      - "README.md"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout web port configuration
+        uses: actions/checkout@v4
+
+      - name: Download Psych Engine 0.7.3 source
+        run: |
+          git clone --depth 1 --branch 0.7.3 https://github.com/ShadowMario/FNF-PsychEngine.git engine
+
+      - name: Set up Haxe
+        uses: krdlab/setup-haxe@v1
+        with:
+          haxe-version: "4.2.5"
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvlc-dev libvlccore-dev libgl1-mesa-dev
+          mkdir -p "$HOME/haxelib"
+          haxelib setup "$HOME/haxelib"
+
+      - name: Install Haxe libraries
+        working-directory: engine
+        run: |
+          haxelib install lime --quiet
+          haxelib run lime setup
+          haxelib install openfl --quiet
+          haxelib install flixel --quiet
+          haxelib install flixel-ui --quiet
+          haxelib install flixel-addons --quiet
+          haxelib install tjson --quiet
+          haxelib install flxanimate --quiet
+          haxelib install hxcpp --quiet
+          haxelib install hscript --quiet || true
+
+      - name: Apply browser-target configuration
+        working-directory: engine
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("Project.xml")
+          s = p.read_text()
+          s = s.replace('<define name="DISCORD_ALLOWED" />', '<define name="DISCORD_ALLOWED" if="desktop" />')
+          s = s.replace('<define name="LUA_ALLOWED" if="desktop" />', '<define name="LUA_ALLOWED" if="desktop" />')
+          s = s.replace('<define name="HSCRIPT_ALLOWED" if="desktop" />', '<define name="HSCRIPT_ALLOWED" if="desktop" />')
+          p.write_text(s)
+          PY
+
+      - name: Build HTML5
+        working-directory: engine
+        run: haxelib run lime build html5 -final
+
+      - name: Prepare Pages artifact
+        run: |
+          mkdir -p dist
+          find engine/export -type f -name index.html -print -quit | grep -q . || {
+            echo "Build finished without producing index.html; inspect the Build HTML5 log." >&2
+            exit 1
+          }
+          HTML=$(find engine/export -type f -name index.html -print -quit)
+          ROOT=$(dirname "$HTML")
+          cp -a "$ROOT"/. dist/
+          touch dist/.nojekyll
+          cat > dist/BUILD-INFO.txt <<'EOF'
+          Experimental Psych Engine 0.7.3 HTML5 build.
+          Browser compatibility and mod support are not yet guaranteed.
+          EOF
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
