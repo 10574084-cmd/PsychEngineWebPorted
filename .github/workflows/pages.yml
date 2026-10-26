@@ -142,8 +142,8 @@ jobs:
           # OpenFL no longer exposes ImageCanvasUtil / __srcContext to this renderer.
           renderer = Path.home() / "haxelib/flxanimate/git/flxanimate/display/FlxAnimateFilterRenderer.hx"
           s = renderer.read_text()
-          import re
-          pattern = r"public function applyBlend\\(blend:BlendMode, bitmap:BitmapData\\).*?(?=public function graphicstoBitmapData)"
+          start = s.find("public function applyBlend(")
+          end = s.find("public function graphicstoBitmapData", start)
           method = """public function applyBlend(blend:BlendMode, bitmap:BitmapData)
           {
           \t#if (js && html5)
@@ -162,9 +162,9 @@ jobs:
           }
           
           """
-          s, count = re.subn(pattern, method, s, count=1, flags=re.S)
-          if count != 1:
-              raise SystemExit("Expected FlxAnimateFilterRenderer.applyBlend method not found")
+          if start < 0 or end < 0:
+              raise SystemExit("Expected FlxAnimateFilterRenderer.applyBlend method boundaries not found")
+          s = s[:start] + method + s[end:]
           renderer.write_text(s)
 
           project = Path("Project.xml")
