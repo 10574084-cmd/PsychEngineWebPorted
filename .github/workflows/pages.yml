@@ -254,6 +254,40 @@ jobs:
           fi
           ROOT=$(dirname "$HTML")
           cp -a "$ROOT"/. site/
+          # Add an on-screen runtime error panel so browser failures can be diagnosed without DevTools.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("site/index.html")
+          html = p.read_text()
+          diagnostic = r"""
+          <script>
+          (function () {
+            function showRuntimeError(title, detail) {
+              var panel = document.getElementById('psych-runtime-diagnostic');
+              if (!panel) {
+                panel = document.createElement('pre');
+                panel.id = 'psych-runtime-diagnostic';
+                panel.style.cssText = 'position:fixed;z-index:2147483647;left:8px;right:8px;top:8px;max-height:45vh;overflow:auto;background:#210b0b;color:#fff;border:2px solid #ff5252;padding:12px;font:14px monospace;white-space:pre-wrap;overflow-wrap:anywhere';
+                document.body.appendChild(panel);
+              }
+              panel.textContent = 'PSYCH ENGINE RUNTIME ERROR\\n' + title + '\\n' + String(detail || '(no details)').slice(0, 5000);
+            }
+            window.addEventListener('error', function (e) {
+              showRuntimeError(e.message || 'Script/resource error', (e.filename || '') + ':' + (e.lineno || '') + ':' + (e.colno || '') + '\\n' + (e.error && e.error.stack ? e.error.stack : ''));
+            });
+            window.addEventListener('unhandledrejection', function (e) {
+              var reason = e.reason;
+              showRuntimeError('Unhandled promise rejection', reason && reason.stack ? reason.stack : reason);
+            });
+          })();
+          </script>
+          """
+          if "</head>" in html:
+              html = html.replace("</head>", diagnostic + "\\n</head>", 1)
+          else:
+              html = diagnostic + html
+          p.write_text(html)
+          PY
           cp -a "$ROOT"/. release/site/
           cat > release/README-release.txt <<'EOF'
           Psych Engine 0.7.3 experimental HTML5 browser build.
