@@ -42,8 +42,6 @@ jobs:
       - name: Install Haxe libraries
         working-directory: engine
         run: |
-          # Pin the versions used by the Psych Engine 0.7.x generation.
-          # Newer Flixel releases are not source-compatible with this engine.
           haxelib install lime 8.1.2 --quiet
           haxelib run lime setup -y
           haxelib install openfl 9.3.3 --quiet
@@ -55,15 +53,54 @@ jobs:
           haxelib install hxcpp 4.3.2 --quiet
           haxelib git flxanimate https://github.com/ShadowMario/flxanimate dev
 
-      - name: Apply browser-target configuration
+      - name: Patch native file access for browser builds
         working-directory: engine
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p = Path("Project.xml")
-          s = p.read_text()
+
+          paths = Path("source/backend/Paths.hx")
+          s = paths.read_text()
+          for old, new in [
+              ("spriteJson = File.getContent(spriteJson);",
+               "#if sys\n\t\t\tspriteJson = File.getContent(spriteJson);\n\t\t\t#else\n\t\t\tspriteJson = Assets.getText(spriteJson);\n\t\t\t#end"),
+              ("animationJson = File.getContent(animationJson);",
+               "#if sys\n\t\t\tanimationJson = File.getContent(animationJson);\n\t\t\t#else\n\t\t\tanimationJson = Assets.getText(animationJson);\n\t\t\t#end"),
+          ]:
+              if old not in s:
+                  raise SystemExit(f"Expected Paths.hx pattern not found: {old}")
+              s = s.replace(old, new, 1)
+          paths.write_text(s)
+
+          animate = Path.home() / "haxelib/flxanimate/git/flxanimate/FlxAnimate.hx"
+          s = animate.read_text()
+          old = "if(trimmed == '.json') myJson = sys.io.File.getContent(myJson); //is a path"
+          new = """if(trimmed == '.json')
+          {
+          #if sys
+              myJson = sys.io.File.getContent(myJson);
+          #else
+              myJson = openfl.Assets.getText(myJson);
+          #end
+          }"""
+          if old not in s:
+              raise SystemExit("Expected FlxAnimate.hx JSON pattern not found")
+          s = s.replace(old, new, 1)
+          old = "myData = sys.io.File.getContent(pathOrStr);"
+          new = """#if sys
+              myData = sys.io.File.getContent(pathOrStr);
+          #else
+              myData = openfl.Assets.getText(pathOrStr);
+          #end"""
+          if s.count(old) < 2:
+              raise SystemExit("Expected FlxAnimate.hx file-read patterns not found")
+          s = s.replace(old, new)
+          animate.write_text(s)
+
+          project = Path("Project.xml")
+          s = project.read_text()
           s = s.replace('<define name="DISCORD_ALLOWED" />', '<define name="DISCORD_ALLOWED" if="desktop" />')
-          p.write_text(s)
+          project.write_text(s)
           PY
 
       - name: Build HTML5
